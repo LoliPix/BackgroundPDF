@@ -3,12 +3,14 @@ import fitz  # PyMuPDF
 import tkinter as tk
 from tkinter import filedialog, colorchooser, messagebox, ttk
 from PIL import Image, ImageTk
+import sys
 
-def select_file():
-    """打开文件选择对话框"""
-    file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
-    if file_path:
-        entry_input.set(file_path)
+def select_files():
+    """打开文件选择对话框，允许选择多个PDF文件"""
+    file_paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
+    if file_paths:
+        # 将多个文件路径以列表形式存储
+        entry_input.set(";".join(file_paths))
 
 def select_output_folder():
     """打开输出文件夹选择对话框"""
@@ -23,12 +25,12 @@ def choose_color():
         entry_color.set(color)
 
 def process_pdf():
-    """处理PDF文件"""
-    input_pdf = entry_input.get()
+    """批量处理PDF文件"""
+    input_pdfs = entry_input.get().split(";")
     output_folder = entry_output.get()
     bg_color = entry_color.get()
 
-    if not input_pdf or not output_folder or not bg_color:
+    if not input_pdfs or not output_folder or not bg_color:
         messagebox.showwarning("警告", "请填写所有必要信息。")
         return
 
@@ -40,28 +42,36 @@ def process_pdf():
     g = int(bg_color[3:5], 16) / 255.0
     b = int(bg_color[5:7], 16) / 255.0
     
-    try:
-        # 打开输入PDF
-        doc = fitz.open(input_pdf)
-        
-        # 创建一个自定义颜色的背景PDF
-        background_pdf = fitz.open()
-        for i in range(len(doc)):
-            page = doc[i]
-            new_page = background_pdf.new_page(width=page.rect.width, height=page.rect.height)
-            # 设置自定义背景颜色
-            new_page.draw_rect(new_page.rect, color=(r, g, b), fill=(r, g, b))
-            # 将原PDF页面内容合并到背景上
-            new_page.show_pdf_page(new_page.rect, doc, i, keep_proportion=True, rotate=0)
-        
-        # 保存到输出PDF
-        output_pdf = os.path.join(output_folder, f"bg_{os.path.basename(input_pdf)}")
-        background_pdf.save(output_pdf)
-        background_pdf.close()
-        doc.close()
-        messagebox.showinfo("完成", f"PDF已处理，输出文件：{output_pdf}")
-    except Exception as e:
-        messagebox.showerror("错误", str(e))
+    total_files = len(input_pdfs)
+    for i, input_pdf in enumerate(input_pdfs):
+        if not os.path.exists(input_pdf):
+            messagebox.showerror("错误", f"文件不存在：{input_pdf}")
+            continue
+
+        try:
+            # 打开输入PDF
+            doc = fitz.open(input_pdf)
+            
+            # 创建一个自定义颜色的背景PDF
+            background_pdf = fitz.open()
+            for page in doc:
+                new_page = background_pdf.new_page(width=page.rect.width, height=page.rect.height)
+                # 设置自定义背景颜色
+                new_page.draw_rect(new_page.rect, color=(r, g, b), fill=(r, g, b))
+                # 将原PDF页面内容合并到背景上
+                new_page.show_pdf_page(new_page.rect, doc, page.number, keep_proportion=True, rotate=0)
+            
+            # 保存到输出PDF
+            output_pdf = os.path.join(output_folder, f"bg_{os.path.basename(input_pdf)}")
+            background_pdf.save(output_pdf)
+            background_pdf.close()
+            doc.close()
+            # 更新进度
+            progress_var.set(f"已处理 {i+1}/{total_files} 个文件")
+        except Exception as e:
+            messagebox.showerror("错误", f"处理 {os.path.basename(input_pdf)} 时发生错误：{str(e)}")
+
+    messagebox.showinfo("完成", f"所有文件已处理，输出文件夹：{output_folder}")
 
 def open_about():
     about_window = tk.Toplevel(root)
@@ -122,8 +132,8 @@ def callback(url):
 
 # 创建主窗口
 root = tk.Tk()
-root.title("PDF背景颜色修改器")
-root.geometry("500x200")
+root.title("PDF背景颜色批量修改器")
+root.geometry("500x250")
 
 # 应用样式
 style = ttk.Style()
@@ -133,6 +143,7 @@ style.theme_use('clam')  # 使用更现代的样式
 entry_input = tk.StringVar()
 entry_output = tk.StringVar()
 entry_color = tk.StringVar()
+progress_var = tk.StringVar()
 
 # 布局框架
 mainframe = ttk.Frame(root, padding="3 3 12 12")
@@ -143,7 +154,7 @@ root.rowconfigure(0, weight=1)
 # 输入PDF路径
 ttk.Label(mainframe, text="选择PDF文件:").grid(column=1, row=1, sticky=tk.W)
 ttk.Entry(mainframe, width=40, textvariable=entry_input).grid(column=2, row=1, columnspan=2, sticky=(tk.W, tk.E))
-ttk.Button(mainframe, text="浏览", command=select_file).grid(column=4, row=1)
+ttk.Button(mainframe, text="浏览", command=select_files).grid(column=4, row=1)
 
 # 选择输出文件夹
 ttk.Label(mainframe, text="输出文件夹:").grid(column=1, row=2, sticky=tk.W)
@@ -156,10 +167,13 @@ ttk.Entry(mainframe, width=10, textvariable=entry_color).grid(column=2, row=3, s
 ttk.Button(mainframe, text="选择颜色", command=choose_color).grid(column=3, row=3, sticky=tk.W)
 
 # 处理PDF按钮
-ttk.Button(mainframe, text="处理PDF", command=process_pdf).grid(column=2, row=4, sticky=tk.W, pady=10)
+ttk.Button(mainframe, text="批量处理PDF", command=process_pdf).grid(column=2, row=4, sticky=tk.W, pady=10)
 
 # 关于按钮
 ttk.Button(mainframe, text="关于", command=open_about).grid(column=4, row=4, sticky=tk.E, pady=10)
+
+# 显示处理进度
+ttk.Label(mainframe, textvariable=progress_var).grid(column=2, row=5, columnspan=2, sticky=(tk.W, tk.E))
 
 # 调整间距
 for child in mainframe.winfo_children():
